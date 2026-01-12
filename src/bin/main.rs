@@ -8,15 +8,15 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-mod ble_setup;
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;
 use esp_radio::ble::controller::BleConnector;
-use ble_setup::*;
-use log::{warn, info};
+use log::{warn, info, error};
+use trouble_host::prelude::*;
+use dig_clock_rs::*;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -34,8 +34,11 @@ esp_bootloader_esp_idf::esp_app_desc!();
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 #[esp_rtos::main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> () {
     // generator version: 1.1.0
+
+    esp_idf_logger::init().unwrap();
+    // esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -52,20 +55,34 @@ async fn main(spawner: Spawner) -> ! {
     let (mut _wifi_controller, _interfaces) =
         esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
             .expect("Failed to initialize Wi-Fi controller");
-    let _connector = BleConnector::new(&radio_init, peripherals.BT, Default::default());
+    let connector = BleConnector::new(&radio_init, peripherals.BT, Default::default()).unwrap();
+    let controller: ExternalController<_, 1> = ExternalController::new(connector);
+
 
     // TODO: Spawn some tasks
-    let _ = spawner;
+    // let _ = spawner;
 
-    loop {
-        Timer::after(Duration::from_secs(1)).await;
+    if let Ok(res) = lcd_lvgl::lcd_lvgl_init(
+        peripherals.SPI2,
+        peripherals.GPIO18,
+        peripherals.GPIO19,
+        peripherals.GPIO21,
+        peripherals.GPIO22,
+        peripherals.GPIO4,
+        peripherals.GPIO5
+    ) {
+        error!("error: {:?}", res);
+
+        if let Ok(res) = spawner.spawn(lcd_lvgl::lcd_lvgl_task()) {
+            error!("error: {:?}", res);
+        }
+        else {
+            info!("successfully created task");
+        }
     }
+
+
+    ble_setup::ble_bas_peripheral_run(controller).await;
+
 }
 
-#[embassy_executor::task]
-pub async fn task() {
-    loop {
-        Timer::after(Duration::from_secs(1)).await;
-        info!("WORKING TASK");
-    }
-}

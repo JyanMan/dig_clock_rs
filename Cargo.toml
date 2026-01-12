@@ -9,10 +9,22 @@ name = "dig_clock_rs"
 path = "./src/bin/main.rs"
 
 [dependencies]
+# esp-println = { version = "0.16.1", features = ["esp32"] }
 esp_idf_logger = "0.1"
+
+esp-hal = { version = "~1.0", features = ["esp32", "unstable", "log-04"] }
+
 log = "0.4"
 
-esp-hal = { version = "~1.0", features = ["esp32", "unstable"] }
+embedded-hal-bus = { version = "0.3" }
+
+display-interface-spi = "0.5"
+
+ili9341 = "0.6.0"
+
+embedded-graphics = "0.8.1"
+
+# esp-backtrace = { version = "0.18.1", features = ["esp32", "defmt", "println"] }
 
 trouble-host = { version = "0.5.0", features = [
     "default-packet-pool-mtu-255",

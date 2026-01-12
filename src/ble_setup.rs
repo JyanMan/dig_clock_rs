@@ -1,51 +1,30 @@
-#![no_std]
-#![no_main]
-
-#![deny(
-    clippy::mem_forget,
-    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
-    holding buffers for the duration of a data transfer."
-)]
-#![deny(clippy::large_stack_frames)]
-
-use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
-use esp_hal::clock::CpuClock;
-use esp_hal::timer::timg::TimerGroup;
-use esp_radio::ble::controller::BleConnector;
-
-
-extern crate alloc;
-
-// This creates a default app-descriptor required by the esp-idf bootloader.
-// For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
-esp_bootloader_esp_idf::esp_app_desc!();
-
 use embassy_futures::{join::join, select::select};
+use embassy_time::Timer;
+use esp_alloc as _;
+use log::{info, warn, error};
 use trouble_host::prelude::*;
-use log::{warn, info};
 
 /// Max number of connections
 const CONNECTIONS_MAX: usize = 1;
 /// Max number of L2CAP channels.
 const L2CAP_CHANNELS_MAX: usize = 2; // Signal + att
+const BLE_ADVERTISING_NAME: &str = "Digital_Clock";
 
 // GATT Server definition
 #[gatt_server]
 struct Server {
-    battery_service: BatteryService,
+    editor_service: EditorService,
 }
 
-/// Battery service
-#[gatt_service(uuid = service::BATTERY)]
-struct BatteryService {
+#[gatt_service(uuid = "002E4767-C69D-1382-9944-B99FE7FAF2D2")]
+struct EditorService {
     /// Battery Level
-    #[descriptor(uuid = descriptors::VALID_RANGE, read, value = [0, 100])]
-    #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
-    #[characteristic(uuid = characteristic::BATTERY_LEVEL, read, notify, value = 10)]
-    level: u8,
-    #[characteristic(uuid = "408813df-5dd4-1f87-ec11-cdb001100000", write, read, notify)]
-    status: bool,
+    // #[descriptor(uuid = descriptors::VALID_RANGE, read, value = [0, 100])]
+    // #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
+    #[characteristic(uuid = "46F65758-1557-EF97-124E-D90845DBDAA2", write, read, notify)]
+    data: u8,
+    // #[characteristic(uuid = "408813df-5dd4-1f87-ec11-cdb001100000", write, read, notify)]
+    // status: bool,
 }
 
 /// Run the BLE stack.
@@ -69,14 +48,14 @@ where
 
     info!("Starting advertising and GATT service");
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: "TrouBLE",
+        name: BLE_ADVERTISING_NAME,
         appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
     }))
     .unwrap();
 
     let _ = join(ble_task(runner), async {
         loop {
-            match advertise("Trouble Example", &mut peripheral, &server).await {
+            match advertise(BLE_ADVERTISING_NAME, &mut peripheral, &server).await {
                 Ok(conn) => {
                     // set up tasks when the connection is established to a central, so they don't
                     // run when no one is connected.
@@ -127,22 +106,27 @@ async fn gatt_events_task<P: PacketPool>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
 ) -> Result<(), Error> {
-    let level = server.battery_service.level;
+    let data = server.editor_service.data;
     let reason = loop {
         match conn.next().await {
             GattConnectionEvent::Disconnected { reason } => break reason,
             GattConnectionEvent::Gatt { event } => {
                 match &event {
                     GattEvent::Read(event) => {
-                        if event.handle() == level.handle {
-                            let value = server.get(&level);
-                            info!("[gatt] Read Event to Level Characteristic: {:?}", value);
+                        if event.handle() == data.handle {
+                            // let new_val: u8 =  0x00;
+                            // // send data to client
+                            // if let Err(res) = data.set(server, &new_val) {
+                            //     error!("[gatt] error sending data {:?}", res);
+                            // }
+                            let value = server.get(&data);
+                            info!("[gatt] Read Event to data Characteristic: {:?}", value);
                         }
                     }
                     GattEvent::Write(event) => {
-                        if event.handle() == level.handle {
+                        if event.handle() == data.handle {
                             info!(
-                                "[gatt] Write Event to Level Characteristic: {:?}",
+                                "[gatt] Write Event to data Characteristic: {:?}",
                                 event.data()
                             );
                         }
@@ -203,7 +187,7 @@ async fn custom_task<C: Controller, P: PacketPool>(
     stack: &Stack<'_, C, P>,
 ) {
     let mut tick: u8 = 0;
-    let level = server.battery_service.level;
+    let level = server.editor_service.data;
     loop {
         tick = tick.wrapping_add(1);
         info!("[custom_task] notifying connection of tick {}", tick);
