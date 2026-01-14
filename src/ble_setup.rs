@@ -53,6 +53,7 @@ where
     }))
     .unwrap();
 
+    // spawn ble_task together with the two other tasks (a and b)
     let _ = join(ble_task(runner), async {
         loop {
             match advertise(BLE_ADVERTISING_NAME, &mut peripheral, &server).await {
@@ -61,8 +62,7 @@ where
                     // run when no one is connected.
                     let a = gatt_events_task(&server, &conn);
                     let b = custom_task(&server, &conn, &stack);
-                    // run until any task ends (usually because the connection has been closed),
-                    // then return to advertising state.
+                    // run a and b concurrently
                     select(a, b).await;
                 }
                 Err(e) => {

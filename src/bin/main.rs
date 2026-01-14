@@ -51,18 +51,8 @@ async fn main(spawner: Spawner) -> () {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0);
 
-    let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
-    let (mut _wifi_controller, _interfaces) =
-        esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
-            .expect("Failed to initialize Wi-Fi controller");
-    let connector = BleConnector::new(&radio_init, peripherals.BT, Default::default()).unwrap();
-    let controller: ExternalController<_, 1> = ExternalController::new(connector);
-
-
-    // TODO: Spawn some tasks
-    // let _ = spawner;
-
-    if let Ok(res) = lcd_lvgl::lcd_lvgl_init(
+    // LCD
+    if let Ok(display) = lcd_graphics::display_init(
         peripherals.SPI2,
         peripherals.GPIO18,
         peripherals.GPIO19,
@@ -70,19 +60,24 @@ async fn main(spawner: Spawner) -> () {
         peripherals.GPIO22,
         peripherals.GPIO4,
         peripherals.GPIO5
-    ) {
-        error!("error: {:?}", res);
+    ).await {
 
-        if let Ok(res) = spawner.spawn(lcd_lvgl::lcd_lvgl_task()) {
-            error!("error: {:?}", res);
+        if let Ok(_) = spawner.spawn(lcd_graphics::update_task(display)) {
+            info!("[lcd] successfully created task");
         }
         else {
-            info!("successfully created task");
+            error!("[lcd] failed to create task");
         }
     }
 
+    // BLE
+    // let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
+    // let (mut _wifi_controller, _interfaces) =
+    //     esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
+    //         .expect("Failed to initialize Wi-Fi controller");
+    // let connector = BleConnector::new(&radio_init, peripherals.BT, Default::default()).unwrap();
+    // let controller: ExternalController<_, 1> = ExternalController::new(connector);
 
-    ble_setup::ble_bas_peripheral_run(controller).await;
-
+    // ble_setup::ble_bas_peripheral_run(controller).await;
 }
 
