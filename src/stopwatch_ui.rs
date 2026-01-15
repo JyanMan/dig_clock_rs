@@ -1,42 +1,15 @@
-use esp_hal::{
-    timer::timg::TimerGroup,
-    spi::{
-        Mode,
-        master::{Config, ConfigError, Spi}
-    },
-    gpio::{Level, Output, OutputConfig},
-    delay::Delay,
-    peripherals::SPI2,
-    Blocking,
-};
 use embedded_graphics::{
     mono_font::{ascii::FONT_8X13, MonoTextStyle},
     pixelcolor::{Rgb565, Gray8},
     prelude::*,
     text::{Alignment, LineHeight, Text, TextStyleBuilder},
-    primitives::{Rectangle, RoundedRectangle, PrimitiveStyle, PrimitiveStyleBuilder, Styled},
+    primitives::{Rectangle, RoundedRectangle, PrimitiveStyleBuilder},
 };
-use embedded_graphics_framebuf::{FrameBuf, backends::FrameBufferBackend};
-use log::{warn, info, error};
-use display_interface_spi::SPIInterface;
-use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-use ili9341::{DisplaySize240x320, Ili9341, Orientation};
-extern crate alloc;
 use alloc::string::String;
+use log::{warn, info, error};
 
-use crate::config::{BACKGROUND_COLOR,
-    MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT,
-    LCD_WIDTH, LCD_HEIGHT};
 
-pub type Display<'a> 
-    = Ili9341<SPIInterface<ExclusiveDevice<
-            Spi<'a, Blocking>, Output<'a>, NoDelay
-        >, Output<'a>>, Output<'a>>;
-
-pub struct Renderer<'a> {
-    display: Display<'a>,
-    framebuf: FrameBuf<Rgb565, [Rgb565; MAX_DRAW_BUF]>
-}
+extern crate alloc;
 
 pub struct ClockStopwatchUi {
     text: String,
@@ -67,22 +40,6 @@ impl ClockStopwatchUi {
 
     pub fn set_pos<'b>(&mut self, new_pos: Point) {
         self.pos = new_pos;
-    }
-
-    // clear previous draw
-    pub fn clear<'b>(&self, display: &'b mut impl DrawTarget<Color=Rgb565>, area: Rectangle) {
-        let pad: u32 = 10 + self.padding;
-        let width = area.size.width + pad*2;
-        let height = area.size.height + pad*2;
-        let pos = {
-            let pos = area.top_left;
-            Point::new(pos.x - pad as i32, pos.y - pad as i32)
-        };
-        let _ = display.fill_solid(
-            &Rectangle::new(pos, Size::new(width, height)),
-            BACKGROUND_COLOR,
-        );
-        info!("[graphics] cleared stopwatch ui");
     }
 
     pub fn draw<'b>(
@@ -192,5 +149,10 @@ impl ClockStopwatchUi {
         let _ = back_g.draw(display);
         let _ = text.draw(display);
     }
+}
+
+#[embassy_executor::task]
+pub async fn update_stopwatch() {
+    
 }
 

@@ -28,10 +28,15 @@ use embassy_sync::{
     blocking_mutex::raw::NoopRawMutex
 };
 
-use crate::graphics_utils::*;
+use crate::stopwatch_ui::*;
 
 extern crate alloc;
 use alloc::format;
+
+pub type Display<'a> 
+    = Ili9341<SPIInterface<ExclusiveDevice<
+            Spi<'a, Blocking>, Output<'a>, NoDelay
+        >, Output<'a>>, Output<'a>>;
 
 pub async fn display_init<'a>(
     lcd_host: SPI2<'a>,
