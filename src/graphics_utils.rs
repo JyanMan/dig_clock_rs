@@ -10,12 +10,13 @@ use esp_hal::{
     Blocking,
 };
 use embedded_graphics::{
-    mono_font::{ascii::FONT_9X18, MonoTextStyle},
+    mono_font::{ascii::FONT_8X13, MonoTextStyle},
     pixelcolor::{Rgb565, Gray8},
     prelude::*,
     text::{Alignment, LineHeight, Text, TextStyleBuilder},
-    primitives::{Rectangle, RoundedRectangle, PrimitiveStyle, PrimitiveStyleBuilder},
+    primitives::{Rectangle, RoundedRectangle, PrimitiveStyle, PrimitiveStyleBuilder, Styled},
 };
+use embedded_graphics_framebuf::{FrameBuf, backends::FrameBufferBackend};
 use log::{warn, info, error};
 use display_interface_spi::SPIInterface;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
@@ -23,81 +24,37 @@ use ili9341::{DisplaySize240x320, Ili9341, Orientation};
 extern crate alloc;
 use alloc::string::String;
 
-use crate::config::{BACKGROUND_COLOR, LCD_WIDTH, LCD_HEIGHT};
+use crate::config::{BACKGROUND_COLOR,
+    MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT,
+    LCD_WIDTH, LCD_HEIGHT};
 
 pub type Display<'a> 
     = Ili9341<SPIInterface<ExclusiveDevice<
             Spi<'a, Blocking>, Output<'a>, NoDelay
         >, Output<'a>>, Output<'a>>;
 
-
-pub struct DrawBuffer {
-    pub framebuffer: [u16; (LCD_WIDTH * LCD_HEIGHT) as usize], 
-    // pub iface: Spi<'a, Blocking> 
-}
-
-impl DrawBuffer {
-    /// Updates the display from the framebuffer.
-    pub fn flush<'a>(&self, display: &'a mut Display) -> Result<(), ()> {
-        // self.iface.send_bytes(&self.framebuffer)
-        let x0: u16 = 0;
-        let y0: u16 = 0;
-        let x1: u16 = LCD_WIDTH as u16;
-        let y1: u16 = LCD_HEIGHT as u16;
-        let _ = display.draw_raw_iter(x0, y0, x1, y1, self.framebuffer.iter().copied());
-        // warn!("[flush] no defined flush yet");
-        
-        Ok(())
-    }
-}
-
-impl DrawTarget for DrawBuffer {
-    type Color = Rgb565;
-    // `ExampleDisplay` uses a framebuffer and doesn't need to communicate with the display
-    // controller to draw pixel, which means that drawing operations can never fail. To reflect
-    // this the type `Infallible` was chosen as the `Error` type.
-    type Error = core::convert::Infallible;
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        for Pixel(coord, color) in pixels.into_iter() {
-            // Check if the pixel coordinates are out of bounds (negative or greater than
-            // (63,63)). `DrawTarget` implementation are required to discard any out of bounds
-            // pixels without returning an error or causing a panic.
-            // Calculate the index in the framebuffer.
-            if let Ok((x @ 0..=319, y @ 0..=239)) = coord.try_into() {
-                let index: u32 = x + y * LCD_WIDTH;
-                self.framebuffer[index as usize] = color.into_storage();
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl OriginDimensions for DrawBuffer {
-    fn size(&self) -> Size {
-        Size::new(LCD_WIDTH, LCD_HEIGHT)
-    }
+pub struct Renderer<'a> {
+    display: Display<'a>,
+    framebuf: FrameBuf<Rgb565, [Rgb565; MAX_DRAW_BUF]>
 }
 
 pub struct ClockStopwatchUi {
     text: String,
     pos: Point,
     text_bounds: Option<Rectangle>,
-    updated: bool,
+    pub updated: bool,
+    padding: u32,
 }
 
 impl ClockStopwatchUi {
 
-    pub fn new(text: &str, pos: Point) -> Self {
+    pub fn new(text: &str, pos: Point, padding: u32) -> Self {
         Self {
             text: String::from(text),
             pos,
             text_bounds: None,
             updated: true, // allow redraw on init
+            padding
         }
     }
 
@@ -105,46 +62,66 @@ impl ClockStopwatchUi {
         self.pos
     }
 
-    pub fn set_text<'b> (&mut self, display: &'b mut Display, new_text: String) {
+    pub fn set_text<'b> (&mut self, new_text: String) {
         self.text = new_text;
         self.updated = true;
-        self.clear(display);
 
     }
 
-    pub fn set_pos<'b>(&mut self, display: &'b mut Display, new_pos: Point) {
+    pub fn set_pos<'b>(&mut self, new_pos: Point) {
         self.pos = new_pos;
         self.updated = true;
-        self.clear(display);
     }
 
     // clear previous draw
-    pub fn clear<'b>(&self, display: &'b mut Display) {
-        if let Some(text_bounds) = self.text_bounds {
-            const PAD: u32 = 10;
-            let width = text_bounds.size.width + PAD*2;
-            let height = text_bounds.size.height + PAD*2;
-            let pos = {
-                let pos = text_bounds.top_left;
-                Point::new(pos.x - PAD as i32, pos.y - PAD as i32)
-            };
-            let _ = display.fill_solid(
-                &Rectangle::new(pos, Size::new(width, height)),
-                BACKGROUND_COLOR,
-            );
-            info!("[graphics] cleared stopwatch ui");
-        }
+    pub fn clear<'b>(&self, display: &'b mut impl DrawTarget<Color=Rgb565>, area: Rectangle) {
+        // if let Some(text_bounds) = self.text_bounds {
+        //     let pad: u32 = 10 + self.padding;
+        //     let width = text_bounds.size.width + pad*2;
+        //     let height = text_bounds.size.height + pad*2;
+        //     let pos = {
+        //         let pos = text_bounds.top_left;
+        //         Point::new(pos.x - pad as i32, pos.y - pad as i32)
+        //     };
+        //     let _ = display.fill_solid(
+        //         &Rectangle::new(pos, Size::new(width, height)),
+        //         BACKGROUND_COLOR,
+        //     );
+        //     info!("[graphics] cleared stopwatch ui");
+        // }
+        let pad: u32 = 10 + self.padding;
+        let width = area.size.width + pad*2;
+        let height = area.size.height + pad*2;
+        let pos = {
+            let pos = area.top_left;
+            Point::new(pos.x - pad as i32, pos.y - pad as i32)
+        };
+        let _ = display.fill_solid(
+            &Rectangle::new(pos, Size::new(width, height)),
+            BACKGROUND_COLOR,
+        );
+        info!("[graphics] cleared stopwatch ui");
     }
 
-    pub fn draw<'b>(&mut self, display: &'b mut Display) {
-        // only redraw if updated
-        if !self.updated {
-            return;
-        }
+    pub fn draw<'b>(
+        &mut self,
+        // data: &mut [Rgb565; MAX_DRAW_BUF]
+        display: &'b mut impl DrawTarget<Color=Rgb565>,
+        offset: Point
+    ) {
+
+        // clear its previous position
+        // self.clear(display);
         self.updated = false;
 
+        let draw_pos = Point::new(
+            self.pos.x + offset.x,
+            self.pos.y + offset.y
+        );
+
+
         // draw actual stopwatch text
-        let character_style = MonoTextStyle::new(&FONT_9X18, Rgb565::WHITE);
+        let character_style = MonoTextStyle::new(&FONT_8X13, Rgb565::WHITE);
         let text_style = TextStyleBuilder::new()
             .alignment(Alignment::Center)
             .line_height(LineHeight::Percent(150))
@@ -152,7 +129,7 @@ impl ClockStopwatchUi {
     
         let text = Text::with_text_style(
             self.text.as_str(),
-            self.pos,
+            draw_pos,
             character_style,
             text_style
         );
@@ -166,14 +143,114 @@ impl ClockStopwatchUi {
         let text_bounds = text.bounding_box();
         self.text_bounds = Some(text_bounds);
 
+        let back_g_pos = {
+            let pos = text_bounds.top_left;
+            let pad = self.padding as i32;
+            Point::new(pos.x - pad, pos.y - pad)
+        };
+        let back_g_size = {
+            let size = text_bounds.size;
+            let pad = self.padding as u32 * 2;
+            Size::new(size.width + pad, size.height + pad)
+        };
+
+        // let draw_dest = Rectangle::new(
+        //     draw_pos,
+        //     display.size()
+        // );
+
+        let occ_bounds = Rectangle::new(back_g_pos, back_g_size);
+        
         let _ = RoundedRectangle::with_equal_corners(
-            Rectangle::new(text_bounds.top_left, text_bounds.size),
+            occ_bounds,
             Size::new(10, 10)
         )
         .into_styled(style)
         .draw(display);
 
         let _ = text.draw(display);
+
+
+        // draw_dest
+    }
+
+    pub fn get_to_draw<'b>(
+        &self,
+        // data: &mut [Rgb565; MAX_DRAW_BUF]
+        // display: &'b mut impl DrawTarget<Color=Rgb565>,
+        offset: Point
+    ) -> (
+        Text<'_, MonoTextStyle<'_, Rgb565>>,
+        Styled<RoundedRectangle, PrimitiveStyle<Rgb565>>,
+        Rectangle
+    ) {
+
+        // clear its previous position
+        // self.clear(display);
+        // self.updated = false;
+
+        let draw_pos = Point::new(
+            self.pos.x + offset.x,
+            self.pos.y + offset.y
+        );
+
+
+        // draw actual stopwatch text
+        let character_style = MonoTextStyle::new(&FONT_8X13, Rgb565::WHITE);
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Center)
+            .line_height(LineHeight::Percent(150))
+            .build();
+    
+        let text = Text::with_text_style(
+            self.text.as_str(),
+            draw_pos,
+            character_style,
+            text_style
+        );
+
+        let style = PrimitiveStyleBuilder::new()
+            .stroke_width(5)
+            .stroke_color(Rgb565::RED)
+            .fill_color(Rgb565::new(40, 50, 70))
+            .build();
+
+        let text_bounds = text.bounding_box();
+        // self.text_bounds = Some(text_bounds);
+
+        let back_g_pos = {
+            let pos = text_bounds.top_left;
+            let pad = self.padding as i32;
+            Point::new(pos.x - pad, pos.y - pad)
+        };
+        let back_g_size = {
+            let size = text_bounds.size;
+            let pad = self.padding as u32 * 2;
+            Size::new(size.width + pad, size.height + pad)
+        };
+
+        // let draw_dest = Rectangle::new(
+        //     draw_pos,
+        //     display.size()
+        // );
+
+        let occ_bounds = Rectangle::new(back_g_pos, back_g_size);
+        
+        let back_g  = RoundedRectangle::with_equal_corners(
+            occ_bounds,
+            Size::new(10, 10)
+        )
+        .into_styled(style);
+        // .draw(display);
+
+        // self.clear(display);
+        // let _ = back_g.draw(display);
+        // let _ = text.draw(display);
+
+        (text, back_g, occ_bounds)
+
+
+        // draw_dest
     }
 }
 

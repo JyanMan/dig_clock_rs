@@ -27,15 +27,11 @@ use embassy_sync::{
     channel::Channel,
     blocking_mutex::raw::NoopRawMutex
 };
-use static_cell::StaticCell;
 
 use crate::graphics_utils::*;
-use crate::config::*;
 
 extern crate alloc;
 use alloc::format;
-
-static DRAW_BUFF: StaticCell<DrawBuffer> = StaticCell::new();
 
 pub async fn display_init<'a>(
     lcd_host: SPI2<'a>,
@@ -81,13 +77,18 @@ pub async fn display_init<'a>(
 
 #[embassy_executor::task]
 pub async fn update_task(mut display: Display<'static>) {
-    use crate::config::BACKGROUND_COLOR;
+    use crate::config::{BACKGROUND_COLOR, MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT, LCD_WIDTH, LCD_HEIGHT};
+    use embedded_graphics_framebuf::FrameBuf;
+
+    use embedded_graphics::
+        primitives::{Rectangle, RoundedRectangle, PrimitiveStyle, PrimitiveStyleBuilder};
 
     let mut counter: u32 = 0;
 
     let mut stopwatch_ui = ClockStopwatchUi::new(
-        "hello world",
-        Point::new(50, 50)
+        "hello ",
+        Point::new(100, 100),
+        2
     );
 
     // let mut draw_buff = DRAW_BUFF.init( DrawBuffer { framebuffer: [0u16; (LCD_WIDTH * LCD_HEIGHT) as usize] });
@@ -95,11 +96,42 @@ pub async fn update_task(mut display: Display<'static>) {
   
     let _ = display.clear(BACKGROUND_COLOR);
 
+    let mut data = [BACKGROUND_COLOR; MAX_DRAW_BUF];
+
     loop {
         Timer::after_secs(1).await;
         counter += 1;
         info!("[lcd] time seconds: {}", counter);
-        stopwatch_ui.set_text(&mut display, format!("hello world: {}", counter));
-        stopwatch_ui.draw(&mut display);
+        stopwatch_ui.set_text(format!("hello : {}", counter));
+
+
+        if stopwatch_ui.updated {
+            // let draw_dest = stopwatch_ui.draw(&mut data);
+            // if let Some(draw_dest) = stopwatch_ui.draw(&mut data) {
+            //     let _ = display.fill_contiguous(&draw_dest, data);
+            // }
+            // else {
+            //     error!("[lcd] out of bounds draw");
+            // }
+            stopwatch_ui.updated = false;
+            // let (text, back_g, occ_bounds) = stopwatch_ui.get_to_draw(Point::new(0, 0));
+            // let step = MAX_DRAW_BUFF / occ_bounds.size.height;
+            for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
+                let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
+                // let (text, back_g) =  stopwatch_ui.get_to_draw(&mut fbuf, Point::new(-(i as i32), 0));
+                let (text, back_g, occ_bounds) = stopwatch_ui.get_to_draw(Point::new(-(i as i32), 0));
+                stopwatch_ui.clear(&mut fbuf, occ_bounds);
+                let _ = back_g.draw(&mut fbuf);
+                let _ = text.draw(&mut fbuf);
+
+                
+                let draw_dest = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
+                let _ = display.fill_contiguous(&draw_dest, data);
+            }
+        }
+
+        // let bounds = Rectangle::new(Point::new(100, 100), fbuf.size());
+
+        // info!("bounds: w: {} h: {}", bounds.size.width, bounds.size.height);
     }
 }
