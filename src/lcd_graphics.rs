@@ -79,9 +79,7 @@ pub async fn display_init<'a>(
 pub async fn update_task(mut display: Display<'static>) {
     use crate::config::{BACKGROUND_COLOR, MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT, LCD_WIDTH, LCD_HEIGHT};
     use embedded_graphics_framebuf::FrameBuf;
-
-    use embedded_graphics::
-        primitives::{Rectangle, RoundedRectangle, PrimitiveStyle, PrimitiveStyleBuilder};
+    use embedded_graphics:: primitives::Rectangle;
 
     let mut counter: u32 = 0;
 
@@ -105,33 +103,17 @@ pub async fn update_task(mut display: Display<'static>) {
         stopwatch_ui.set_text(format!("hello : {}", counter));
 
 
-        if stopwatch_ui.updated {
-            // let draw_dest = stopwatch_ui.draw(&mut data);
-            // if let Some(draw_dest) = stopwatch_ui.draw(&mut data) {
-            //     let _ = display.fill_contiguous(&draw_dest, data);
-            // }
-            // else {
-            //     error!("[lcd] out of bounds draw");
-            // }
-            stopwatch_ui.updated = false;
-            // let (text, back_g, occ_bounds) = stopwatch_ui.get_to_draw(Point::new(0, 0));
-            // let step = MAX_DRAW_BUFF / occ_bounds.size.height;
-            for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
-                let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
-                // let (text, back_g) =  stopwatch_ui.get_to_draw(&mut fbuf, Point::new(-(i as i32), 0));
-                let (text, back_g, occ_bounds) = stopwatch_ui.get_to_draw(Point::new(-(i as i32), 0));
-                stopwatch_ui.clear(&mut fbuf, occ_bounds);
-                let _ = back_g.draw(&mut fbuf);
-                let _ = text.draw(&mut fbuf);
+        // draw in vertical strips
+        for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
 
-                
-                let draw_dest = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
-                let _ = display.fill_contiguous(&draw_dest, data);
-            }
+            let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
+            let _ = fbuf.clear(BACKGROUND_COLOR);
+
+            let _ = stopwatch_ui.draw(&mut fbuf, Point::new(-(i as i32), 0));
+
+        
+            let draw_strip = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
+            let _ = display.fill_contiguous(&draw_strip, data);
         }
-
-        // let bounds = Rectangle::new(Point::new(100, 100), fbuf.size());
-
-        // info!("bounds: w: {} h: {}", bounds.size.width, bounds.size.height);
     }
 }
