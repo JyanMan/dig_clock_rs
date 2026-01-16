@@ -1,4 +1,3 @@
-// Standard library and alloc (if using no_std)
 extern crate alloc;
 use alloc::{format, string::String};
 
@@ -38,6 +37,9 @@ use log::{error, info, warn};
 
 // Local/crate imports (last)
 use crate::stopwatch_ui::*;
+use crate::config::{
+    BACKGROUND_COLOR, MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT, LCD_WIDTH, LCD_HEIGHT
+};
 
 pub type Display<'a> 
     = Ili9341<SPIInterface<ExclusiveDevice<
@@ -63,12 +65,9 @@ pub async fn display_init<'a>(
         .with_sck(sck)
         .with_miso(miso)
         .with_mosi(mosi);
-        // .with_cs(cs);
-
 
     let spi_dev = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
     let interface = SPIInterface::new(spi_dev, dc);
-
 
     let display: Display = Ili9341::new(
         interface,
@@ -77,6 +76,16 @@ pub async fn display_init<'a>(
         Orientation::Landscape,
         DisplaySize240x320
     ).unwrap();
+
+
+    let display_bounds = display.bounding_box();
+    let display_width = display_bounds.size.width as usize;
+    let display_height = display_bounds.size.height as usize;
+
+    assert!(display_width == LCD_WIDTH as usize,
+        "[lcd_graphics] lcd width is not equal to display width");
+    assert!(display_height == LCD_HEIGHT as usize,
+        "[lcd_graphics] lcd height is not equal to display height");
 
 
     Ok(display)
@@ -93,12 +102,11 @@ pub async fn update_task(
     ui_update_rec: Receiver<'static, CriticalSectionRawMutex, ClockUiUpdate, 10>
     
 ) {
-    use crate::config::{BACKGROUND_COLOR, MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT, LCD_WIDTH, LCD_HEIGHT};
     use embedded_graphics_framebuf::FrameBuf;
     use embedded_graphics:: primitives::Rectangle;
   
     let _ = display.clear(BACKGROUND_COLOR);
-
+    
     let mut data = [BACKGROUND_COLOR; MAX_DRAW_BUF];
 
     // let mut counter = 0;
@@ -109,7 +117,6 @@ pub async fn update_task(
     );
 
     loop {
-        // block until an update is received
         ui_update_rec.ready_to_receive().await;
 
         // poll until all updates are cleared
@@ -122,18 +129,17 @@ pub async fn update_task(
         // draw in vertical strips
         for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
 
-            // init draw vertical stip buffer
+            // init draw vertical strip buffer
             let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
             let _ = fbuf.clear(BACKGROUND_COLOR);
 
-            // redraw here
+            // start draw to buff
             let _ = stopwatch_ui.draw(&mut fbuf, Point::new(-(i as i32), 0));
-            // end redraw
+            // end draw
 
             // flush buffer into display
             let draw_strip = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
             let _ = display.fill_contiguous(&draw_strip, data);
         }
-        info!("[lcd] updated ui");
     }
 }
