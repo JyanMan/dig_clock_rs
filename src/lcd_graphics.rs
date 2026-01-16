@@ -5,6 +5,7 @@ use alloc::{format, string::String};
 // Third-party crates (alphabetically, grouped by crate)
 use display_interface_spi::SPIInterface;
 
+use embassy_futures::{join::join, select::{select, Either}};
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
     channel::{Channel, Receiver},
@@ -89,7 +90,7 @@ pub enum ClockUiUpdate {
 #[embassy_executor::task]
 pub async fn update_task(
     mut display: Display<'static>,
-    ui_update: Receiver<'static, CriticalSectionRawMutex, ClockUiUpdate, 10>
+    ui_update_rec: Receiver<'static, CriticalSectionRawMutex, ClockUiUpdate, 10>
     
 ) {
     use crate::config::{BACKGROUND_COLOR, MAX_DRAW_BUF, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT, LCD_WIDTH, LCD_HEIGHT};
@@ -108,9 +109,11 @@ pub async fn update_task(
     );
 
     loop {
-        Timer::after_millis(500).await;
+        // block until an update is received
+        ui_update_rec.ready_to_receive().await;
 
-        while let Ok(ui_update) = ui_update.try_receive() {
+        // poll until all updates are cleared
+        while let Ok(ui_update) = ui_update_rec.try_receive() {
             match ui_update {
                 ClockUiUpdate::Stopwatch(time_str) => stopwatch_ui.set_text(time_str),
             }
@@ -119,14 +122,18 @@ pub async fn update_task(
         // draw in vertical strips
         for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
 
+            // init draw vertical stip buffer
             let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
             let _ = fbuf.clear(BACKGROUND_COLOR);
 
+            // redraw here
             let _ = stopwatch_ui.draw(&mut fbuf, Point::new(-(i as i32), 0));
+            // end redraw
 
-        
+            // flush buffer into display
             let draw_strip = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
             let _ = display.fill_contiguous(&draw_strip, data);
         }
+        info!("[lcd] updated ui");
     }
 }

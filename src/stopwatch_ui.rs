@@ -48,11 +48,7 @@ impl ClockStopwatchUi {
         self.pos = new_pos;
     }
 
-    pub fn draw<'b, Display>(
-        &mut self,
-        display: &'b mut Display,
-        offset: Point
-    )
+    pub fn draw<'b, Display>(&mut self, display: &'b mut Display, offset: Point)
     where
         Display: DrawTarget<Color=Rgb565> 
     {
@@ -64,12 +60,20 @@ impl ClockStopwatchUi {
 
         let font = FontRenderer::new::<fonts::u8g2_font_t0_40_tf>();
 
-        let text_bounds = font.get_rendered_dimensions_aligned(
-            self.text.as_str(),
-            draw_pos,
-            VerticalPosition::Baseline,
-            HorizontalAlignment::Center,
-        ).unwrap().unwrap();
+        // fetch the bounds for the background
+        let text_bounds = {
+            if let Ok(text_bounds) = font.get_rendered_dimensions_aligned(
+                self.text.as_str(),
+                draw_pos,
+                VerticalPosition::Baseline,
+                HorizontalAlignment::Center,
+            ) {
+                text_bounds.unwrap()
+            }
+            else {
+                return
+            }
+        };
 
 
         let style = PrimitiveStyleBuilder::new()
