@@ -1,4 +1,4 @@
-use embassy_time::{Duration, Timer, Instant, Ticker};
+use embassy_time::{Duration, Timer, Ticker};
 use embedded_graphics::{
     mono_font::{ascii::FONT_10X20, MonoTextStyle},
     pixelcolor::{Rgb565, Gray8},
@@ -10,6 +10,9 @@ use alloc::string::String;
 use log::{warn, info, error};
 use embassy_sync::channel::{Channel, Sender};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use u8g2_fonts::*;
+use u8g2_fonts::types::*;
+
 
 
 extern crate alloc;
@@ -45,40 +48,36 @@ impl ClockStopwatchUi {
         self.pos = new_pos;
     }
 
-    pub fn draw<'b>(
+    pub fn draw<'b, Display>(
         &mut self,
-        display: &'b mut impl DrawTarget<Color=Rgb565>,
+        display: &'b mut Display,
         offset: Point
-    ) {
+    )
+    where
+        Display: DrawTarget<Color=Rgb565> 
+    {
 
         let draw_pos = Point::new(
             self.pos.x + offset.x,
             self.pos.y + offset.y
         );
 
-        // draw actual stopwatch text
-        let character_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-        let text_style = TextStyleBuilder::new()
-            .alignment(Alignment::Center)
-            .line_height(LineHeight::Percent(150))
-            .build();
-    
-        let text = Text::with_text_style(
+        let font = FontRenderer::new::<fonts::u8g2_font_t0_40_tf>();
+
+        let text_bounds = font.get_rendered_dimensions_aligned(
             self.text.as_str(),
             draw_pos,
-            character_style,
-            text_style
-        );
+            VerticalPosition::Baseline,
+            HorizontalAlignment::Center,
+        ).unwrap().unwrap();
+
 
         let style = PrimitiveStyleBuilder::new()
-            .stroke_width(5)
-            .stroke_color(Rgb565::RED)
-            .fill_color(Rgb565::new(40, 50, 70))
+            .stroke_width(2)
+            .stroke_color(Rgb565::new(20, 20, 30))
+            .fill_color(Rgb565::new(12, 10, 13))
             .build();
-
-        let text_bounds = text.bounding_box();
-        // self.text_bounds = Some(text_bounds);
-
+         
         let back_g_pos = {
             let pos = text_bounds.top_left;
             let pad = self.padding as i32;
@@ -100,7 +99,14 @@ impl ClockStopwatchUi {
         .into_styled(style);
 
         let _ = back_g.draw(display);
-        let _ = text.draw(display);
+        let _ = font.render_aligned(
+            self.text.as_str(),
+            draw_pos,
+            VerticalPosition::Baseline,
+            HorizontalAlignment::Center,
+            FontColor::Transparent(Rgb565::WHITE),
+            display
+        );
     }
 }
 
@@ -127,6 +133,5 @@ pub async fn increment_stopwatch(
 
         info!("[stopwatch_ui] send new counter {}, send data: {:?}", counter, res);
     }
-    
 }
 

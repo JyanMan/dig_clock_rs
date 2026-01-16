@@ -116,17 +116,13 @@ pub async fn update_task(
             }
         }
 
-
         // draw in vertical strips
         for i in (0..LCD_WIDTH).step_by(DRAW_BUF_WIDTH) {
 
             let mut fbuf = FrameBuf::new(&mut data, DRAW_BUF_WIDTH, DRAW_BUF_HEIGHT);
             let _ = fbuf.clear(BACKGROUND_COLOR);
 
-            // if let Some(stopwatch_ui) = stopwatch_ui_opt.as_mut() {
-                // stopwatch_ui.set_text(format!("hello : {}", counter));
             let _ = stopwatch_ui.draw(&mut fbuf, Point::new(-(i as i32), 0));
-            // }
 
         
             let draw_strip = Rectangle::new(Point::new(i as i32, 0), fbuf.size());
