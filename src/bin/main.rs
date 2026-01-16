@@ -32,7 +32,7 @@ extern crate alloc;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static STOPWATCH_UI_CH: StaticCell<
+static UI_UPDATE_CH: StaticCell<
     Channel<CriticalSectionRawMutex, crate::lcd_graphics::ClockUiUpdate, 10>
 > = StaticCell::new();
 
@@ -69,13 +69,13 @@ async fn main(spawner: Spawner) -> () {
         peripherals.GPIO5
     ).await {
 
-        let stopwatch_ui_ch = STOPWATCH_UI_CH.init(
+        let ui_update_ch = UI_UPDATE_CH.init(
             Channel::<CriticalSectionRawMutex, crate::lcd_graphics::ClockUiUpdate, 10>::new());
 
-        let _ = spawner.spawn(stopwatch_ui::increment_stopwatch(stopwatch_ui_ch.sender()));
+        let _ = spawner.spawn(stopwatch_ui::increment_stopwatch(ui_update_ch.sender()));
 
         if let Err(err) = spawner.spawn(
-            lcd_graphics::update_task(display, stopwatch_ui_ch.receiver())
+            lcd_graphics::update_task(display, ui_update_ch.receiver())
         ) {
             error!("[lcd] failed to create task: {:?}", err);
         }

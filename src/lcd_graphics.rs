@@ -93,7 +93,7 @@ pub async fn display_init<'a>(
 
 #[derive(Debug)]
 pub enum ClockUiUpdate {
-    Stopwatch(String)
+    Stopwatch{hour_min: String, sec: String}
 }
 
 #[embassy_executor::task]
@@ -109,11 +109,9 @@ pub async fn update_task(
     
     let mut data = [BACKGROUND_COLOR; MAX_DRAW_BUF];
 
-    // let mut counter = 0;
     let mut stopwatch_ui = ClockStopwatchUi::new(
-        format!("hello: {}", 0).as_str(),
-        Point::new(140, 100),
-        5
+        Point::new(140, 130),
+        15
     );
 
     loop {
@@ -122,7 +120,7 @@ pub async fn update_task(
         // poll until all updates are cleared
         while let Ok(ui_update) = ui_update_rec.try_receive() {
             match ui_update {
-                ClockUiUpdate::Stopwatch(time_str) => stopwatch_ui.set_text(time_str),
+                ClockUiUpdate::Stopwatch{hour_min, sec} => stopwatch_ui.set_text(hour_min, sec),
             }
         }
 
